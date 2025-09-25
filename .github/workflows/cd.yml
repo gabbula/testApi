@@ -1,0 +1,216 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build and Push Container
+    runs-on: ubuntu-latest
+    if: hashFiles('Dockerfile') != ''
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: |
+      always() && 
+      (github.ref == 'refs/heads/main' || 
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')) &&
+      (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped')
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        id: deploy
+        run: |
+          echo "🚀 Deploying to staging environment..."
+          echo "Image: ${{ needs.build-and-push.outputs.image }}"
+          echo "Digest: ${{ needs.build-and-push.outputs.digest }}"
+          
+          # Add your staging deployment logic here
+          # Examples:
+          # - kubectl apply -f k8s/staging/
+          # - helm upgrade --install myapp ./helm-chart --set image.tag=${{ github.sha }}
+          # - aws ecs update-service --cluster staging --service testapi
+          # - docker-compose -f docker-compose.staging.yml up -d
+          
+          echo "✅ Staging deployment completed"
+          echo "url=https://staging.testapi.example.com" >> $GITHUB_OUTPUT
+
+      - name: Run smoke tests
+        run: |
+          echo "🧪 Running smoke tests against staging..."
+          # Add smoke tests here
+          # Example: curl -f https://staging.testapi.example.com/health
+          echo "✅ Smoke tests passed"
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Staging deployment successful!"
+            echo "Environment URL: ${{ steps.deploy.outputs.url }}"
+          else
+            echo "❌ Staging deployment failed!"
+          fi
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    if: |
+      always() && 
+      (startsWith(github.ref, 'refs/tags/v') || 
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')) &&
+      (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        id: deploy
+        run: |
+          echo "🚀 Deploying to production environment..."
+          echo "Image: ${{ needs.build-and-push.outputs.image }}"
+          echo "Digest: ${{ needs.build-and-push.outputs.digest }}"
+          
+          # Add your production deployment logic here
+          # Examples:
+          # - kubectl apply -f k8s/production/
+          # - helm upgrade --install myapp ./helm-chart --set image.tag=${{ github.ref_name }}
+          # - aws ecs update-service --cluster production --service testapi
+          # - docker-compose -f docker-compose.production.yml up -d
+          
+          echo "✅ Production deployment completed"
+          echo "url=https://api.testapi.example.com" >> $GITHUB_OUTPUT
+
+      - name: Run production smoke tests
+        run: |
+          echo "🧪 Running production smoke tests..."
+          # Add production smoke tests here
+          # Example: curl -f https://api.testapi.example.com/health
+          echo "✅ Production smoke tests passed"
+
+      - name: Create deployment record
+        run: |
+          echo "📝 Creating deployment record..."
+          # Add deployment tracking logic here
+          # Examples:
+          # - Create GitHub deployment
+          # - Update monitoring dashboards
+          # - Send notifications to team
+          echo "✅ Deployment record created"
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Production deployment successful!"
+            echo "Environment URL: ${{ steps.deploy.outputs.url }}"
+          else
+            echo "❌ Production deployment failed!"
+          fi
+
+  rollback:
+    name: Rollback
+    runs-on: ubuntu-latest
+    if: failure() && (needs.deploy-staging.result == 'failure' || needs.deploy-production.result == 'failure')
+    needs: [deploy-staging, deploy-production]
+    steps:
+      - name: Rollback deployment
+        run: |
+          echo "🔄 Rolling back failed deployment..."
+          
+          if [ "${{ needs.deploy-production.result }}" == "failure" ]; then
+            echo "Rolling back production deployment..."
+            # Add production rollback logic here
+          elif [ "${{ needs.deploy-staging.result }}" == "failure" ]; then
+            echo "Rolling back staging deployment..."
+            # Add staging rollback logic here
+          fi
+          
+          echo "✅ Rollback completed"
+
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    steps:
+      - name: Cleanup old images
+        run: |
+          echo "🧹 Cleaning up old container images..."
+          # Add cleanup logic here
+          # Examples:
+          # - Delete old Docker images from registry
+          # - Clean up old deployment artifacts
+          echo "✅ Cleanup completed"
