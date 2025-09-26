@@ -1,0 +1,113 @@
+name: Build Lambdas
+inputs:
+    working-directory:
+      description: 'The working directory to run the action in'
+      required: true
+    lambda-projects-directory:
+      description: 'Comma-separated list of Lambda function directories'
+      required: true
+    app-name:
+      description: 'The name of the application'
+      required: true
+    build-number:
+      description: 'The build number'
+      required: true
+    project-name:
+      description: 'The name of the project'
+      required: true
+    org-jfrog-oidc-provider:
+      description: 'The OIDC provider for JFrog'
+      required: true
+    org-jfrog-url:
+      description: 'The URL for JFrog'
+      required: true
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Checkout the repository
+    # This step uses the `actions/checkout` action to clone the repository into the runner's workspace.
+    # It ensures that the source code is available for subsequent build and test steps.
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    # Step 2: Restore NuGet packages using JFrog Artifactory
+    # This step uses the `jfrog-dotnet-restore` composite action to restore NuGet packages from JFrog Artifactory.
+    # It authenticates with JFrog using the provided OIDC provider and URL, and restores packages for the specified project.
+    - name: JFrog DotNet Restore
+      uses: Milliman-IntelliScript/composite-actions/jfrog-dotnet-restore@main
+      with:
+        app-name: "${{ inputs.app-name }}"
+        build-number: "${{ inputs.build-number }}"
+        project-name: "${{ inputs.project-name }}"
+        working-directory: "${{ inputs.working-directory }}/src"
+        org-jfrog-oidc-provider: "${{ inputs.org-jfrog-oidc-provider }}"
+        org-jfrog-url: "${{ inputs.org-jfrog-url }}"
+
+    # Step 3: Build, test, package lambda as zip
+    # This step uses the `dotnet-lambda-build-test-package` composite action to:
+    # - Build the .NET application in Release mode.
+    # - Run unit tests and collect code coverage.
+    # - package all lambda(s) found in the solution as zip and publish it to artifact folder
+    - name: DotNet Build, Test, Package Lambda as Zip to artifact folder
+      uses:  Milliman-IntelliScript/composite-actions/dotnet-lambda-build-test-package@main
+      with:
+        app-name: "${{ inputs.app-name }}"
+        project-name: "${{ inputs.project-name }}"
+        working-directory: "${{ inputs.working-directory }}/src"
+        lambda-projects-directory: ${{ inputs.lambda-projects-directory}} # comma separated list of folders that contains lambda project
+
+    - name: Create hash file
+      id: validate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}/src
+      run: |
+        mkdir tempUpload
+        inputs=${{ inputs.lambda-projects-directory }}
+        IFS=',' read -ra DIRS <<< "$inputs"
+        for dir in "${DIRS[@]}"; do
+            pushd "$dir" || exit
+            hash=$(find . \
+            -name "*.csproj" \
+            -o -name "*.cs" \
+            -o -name "*.json" \
+            -o -name "*.xml" \
+            -o -name "*.xsd" \
+            -o -name "*.sln" \
+            | xargs cat | md5sum | tr -d ' -')
+            echo $hash
+            filename=$(echo $dir | sed 's#^.*/##g')
+            popd || exit
+            echo $hash >> "tempUpload/$filename.hash.zip"
+            echo "----"
+        done
+    - name: Setup JFrog CLI
+      uses: jfrog/setup-jfrog-cli@f0a84f35b0e0bd21838c5fb3e6788072d6540d13 # v4.5.5
+      with:
+        disable-auto-build-publish: false
+        oidc-provider-name: ${{ inputs.org-jfrog-oidc-provider }}
+      env:
+        # Environment variables are set to configure the JFrog CLI with the JFrog base URL, application name, and build number.
+        JF_URL: ${{ inputs.org-jfrog-url }}
+        JFROG_CLI_BUILD_NAME: ${{ inputs.app-name }}
+        JFROG_CLI_BUILD_NUMBER: ${{ inputs.build-number }}
+
+    # Step 2: Push Build to Artifactory
+    # This step uploads the artifact (e.g., a zip file) to JFrog Artifactory using the JFrog CLI.
+    # The artifact is uploaded to a path in Artifactory that includes the project name, application name, and build number.
+    # The `--recursive=true` flag ensures that all files in the specified directory are uploaded.
+    # The `--flat=true` flag ensures that the target directory structure in Artifactory doesn't include the source directory path.
+    - name: Push Build to Artifactory
+      shell: bash
+      run: |
+        # Push the artifact to the specified path in JFrog Artifactory
+        ls
+        jf rt upload "${{ inputs.working-directory }}/*.zip" mi-generic-local/${{ inputs.project-name }}/${{ inputs.build-number }}/ --recursive=true --flat=true
+        cd src/tempUpload
+        ls
+        ls | xargs -I {} jf rt upload "${{ inputs.working-directory }}/src/tempUpload/{}" mi-generic-local/${{ inputs.project-name }}/${{ inputs.build-number }}/ --recursive=true --flat=true
+        # Publish build information to JFrog Artifactory
+        jf rt build-publish
+      env:
+        # Set environment variables for the JFrog CLI to associate the artifact with the application name and build number
+        JFROG_CLI_BUILD_NAME: ${{ inputs.app-name }}
+        JFROG_CLI_BUILD_NUMBER: ${{ inputs.build-number }}

@@ -1,0 +1,157 @@
+name: Build and Deploy Authorizer
+    
+on:
+  workflow_dispatch:
+    inputs:
+        dev:
+            description: 'AWS DEV'
+            type: boolean
+            default: false
+        qa:
+            description: 'AWS QA'
+            type: boolean
+            default: false
+        uat:
+            description: 'AWS UAT'
+            type: boolean
+            default: false
+        prod:
+            description: 'AWS PROD'
+            type: boolean
+            default: false
+
+permissions: # permissions required to connect to a service such as AWS or JFrog using OIDC.
+  id-token: write
+  contents: read
+
+env:
+  API_NAME: "maasriskscoreapi"
+
+jobs:
+
+  encode_okta_secrets:
+    name: Encode Okta Secrets
+    runs-on: ubuntu-latest
+    environment: "aws_development_datascience"
+    outputs:
+      okta_preview_key: ${{ steps.encode_okta_preview_key.outputs.oktakey }}
+      okta_live_key: ${{ steps.encode_okta_live_key.outputs.oktakey }}
+    steps:
+      - name: Encode Okta Preview Key
+        id: encode_okta_preview_key
+        run: |
+          singleLineString=""
+          while IFS= read -r line ;do singleLineString=${singleLineString}${line}; done <<< "${{ secrets.ORG_OKTA_PRIVATEKEY_PREVIEW }}"
+          echo 'oktakey=$(echo $singleLineString | base64 -w 0)' >> $GITHUB_OUTPUT
+      - name: Encode Okta Live Key
+        id: encode_okta_live_key
+        run: echo 'oktakey=$(echo "abc" | sed 's#\r\n/##g' | sed 's#\n##g' | base64 -w 0)' >> $GITHUB_OUTPUT
+
+  build_lambdas:
+    name: Build Lambdas
+    runs-on: ubuntu-latest
+    # The environment is set to 'build' to ensure that a null value isn't passed to OIDC providers.
+    environment: "aws_development_datascience"
+    steps:
+    # Step 1: Checkout the repository
+    # This step uses the `actions/checkout` action to clone the repository into the runner's workspace.
+    # It ensures that the source code is available for subsequent build and test steps.
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: ./.github/actions/build-upload-lambda
+      with:
+        working-directory: ${{ github.workspace }}
+        lambda-projects-directory: './IntelliScript.Scoring.Api.Authorizer'
+        app-name: "maas-risk-score-api"
+        build-number: "1.0.${{ github.run_number }}"
+        project-name: "maas-risk-score-api"
+        org-jfrog-oidc-provider: "github-oidc-integration"
+        org-jfrog-url: "https://millimanintelliscript.jfrog.io"
+
+  # Deploy Terraform resources to AWS environments with manual approval
+  aws_development:
+    name: Deploy to DEV
+    if: inputs.dev == true
+    needs: [build_lambdas, encode_okta_secrets]
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval-with-artifact.yml@main
+    with:
+      app-name: "maas-risk-score-api"
+      build-number: "1.0.${{ github.run_number }}" # You could use any build-numbering framework here, as long as it produces SemVer for PROD artifacts.
+      project-name: "maas-risk-score-api"
+      tf-init-args: "-upgrade"
+      environment: "aws_development_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/api-authorizer" # the working directory which contains the root Terraform module to deploy.
+      download-mode: all
+      artifact-output-directory: "publish"
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=dev
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+        TF_VAR_OKTA_CLIENT_ID=${{ secrets.ORG_OKTA_CLIENTID_PREVIEW }}
+        TF_VAR_OKTA_PRIVATE_KEY=${{ needs.encode_okta_secrets.outputs.okta_preview_key }}
+        TF_VAR_OKTA_BASE_URL=oktapreview.com
+
+  aws_testing:
+    name: Deploy to QA
+    if: inputs.qa == true
+    needs: [build_lambdas] # used to order the sequence that the stages are in.
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval-with-artifact.yml@main
+    with:
+      app-name: "maas-risk-score-api"
+      build-number: "1.0.${{ github.run_number }}" # You could use any build-numbering framework here, as long as it produces SemVer for PROD artifacts.
+      project-name: "maas-risk-score-api"
+      tf-init-args: "-upgrade"
+      environment: "aws_testing_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/api-authorizer" # the working directory which contains the root Terraform module to deploy.
+      download-mode: all
+      artifact-output-directory: "publish"
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=qa
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+        TF_VAR_OKTA_CLIENT_ID=${{ secrets.ORG_OKTA_CLIENTID_LIVE }}
+        TF_VAR_OKTA_PRIVATE_KEY=${{ secrets.ORG_OKTA_PRIVATEKEY_LIVE }}
+        TF_VAR_OKTA_BASE_URL=okta.com
+
+  aws_uat:
+    name: Deploy to UAT
+    if: inputs.uat == true
+    needs: [build_lambdas] # used to order the sequence that the stages are in.
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval-with-artifact.yml@main
+    with:
+      app-name: "maas-risk-score-api"
+      build-number: "1.0.${{ github.run_number }}" # You could use any build-numbering framework here, as long as it produces SemVer for PROD artifacts.
+      project-name: "maas-risk-score-api"
+      tf-init-args: "-upgrade"
+      environment: "aws_uat_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/api-authorizer" # the working directory which contains the root Terraform module to deploy.
+      download-mode: all
+      artifact-output-directory: "publish"
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=test
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+        TF_VAR_OKTA_CLIENT_ID=${{ secrets.ORG_OKTA_CLIENTID_LIVE }}
+        TF_VAR_OKTA_PRIVATE_KEY=${{ secrets.ORG_OKTA_PRIVATEKEY_LIVE }}
+        TF_VAR_OKTA_BASE_URL=okta.com
+
+  aws_production:
+    name: Deploy to PROD
+    if: inputs.prod == true
+    needs: [build_lambdas] # used to order the sequence that the stages are in.
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval-with-artifact.yml@main
+    with:
+      app-name: "maas-risk-score-api"
+      build-number: "1.0.${{ github.run_number }}" # You could use any build-numbering framework here, as long as it produces SemVer for PROD artifacts.
+      project-name: "maas-risk-score-api"
+      tf-init-args: "-upgrade"
+      environment: "aws_production_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/api-authorizer" # the working directory which contains the root Terraform module to deploy.
+      download-mode: all
+      artifact-output-directory: "publish"
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=prod
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+        TF_VAR_OKTA_CLIENT_ID=${{ secrets.ORG_OKTA_CLIENTID_LIVE }}
+        TF_VAR_OKTA_PRIVATE_KEY=${{ secrets.ORG_OKTA_PRIVATEKEY_LIVE }}
+        TF_VAR_OKTA_BASE_URL=okta.com

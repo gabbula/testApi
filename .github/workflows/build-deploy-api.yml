@@ -1,0 +1,78 @@
+name: Build and Deploy API
+# Controls when the workflow will run
+on:
+  workflow_dispatch:
+    inputs:
+        dev:
+            description: 'AWS DEV'
+            type: boolean
+            default: true
+        qa:
+            description: 'AWS QA'
+            type: boolean
+            default: false
+        uat:
+            description: 'AWS UAT'
+            type: boolean
+            default: false
+        prod:
+            description: 'AWS PROD'
+            type: boolean
+            default: false
+
+permissions: # permissions required to connect to a service such as AWS or JFrog using OIDC.
+  id-token: write
+  contents: read
+  checks: write
+  pull-requests: write
+
+env:
+  API_NAME: "maasriskscoreapi"
+
+jobs:
+
+  build_lambdas:
+    name: DotNet Build, Test, Package Lambda as Zip to artifact folder
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/build-lambda-linux.yml@main
+    with:
+      app-name: "maas-risk-score-api"
+      build-number: "1.0.${{ github.run_number }}"
+      disable-tests: true # Disable tests since they're in separate directory
+      project-name: "maas-risk-score-api"
+      working-directory: "src"
+      environment: "aws_development_datascience"
+      lambda-projects-directory: 'IntelliScript.Scoring.Api.ModelExecutionRequestHandler,IntelliScript.Scoring.Api.InputOutputFileEventHandler,IntelliScript.Scoring.Api.Authorizer'
+
+  # Deploy Terraform resources to AWS environments with manual approval
+  aws_development:
+    name: Deploy to DEV
+    if: inputs.dev == true
+    needs: [build_lambdas]
+    concurrency:
+      group: terraform-${{ github.ref }}-aws_development_datascience
+      cancel-in-progress: false
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval-with-artifact.yml@main
+    with:
+      app-name: "maas-risk-score-api"
+      build-number: "1.0.${{ github.run_number }}" # You could use any build-numbering framework here, as long as it produces SemVer for PROD artifacts.
+      project-name: "maas-risk-score-api"
+      tf-init-args: "-upgrade"
+      environment: "aws_development_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/lambda" # the working directory which contains the root Terraform module to deploy.
+      download-mode: all
+      artifact-output-directory: "publish"
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=dev
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+
+  deploy_api_gateway_dev:
+    name: Deploy API Gateway - DEV
+    needs: [aws_development]
+    if: inputs.dev == true
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/api-gateway-stage-deploy-manual-approval.yml@main
+    with:
+      environment: "aws_development_datascience"
+      working-directory: "."
+      apigateway-name: "ds-scoring-dev-api"
+      build-number: "${{ github.run_number }}"

@@ -1,0 +1,141 @@
+name: Build and Deploy Infrastructure
+    
+on:
+  workflow_dispatch:
+    inputs:
+        dev:
+            description: 'AWS DEV'
+            type: boolean
+            default: false
+        qa:
+            description: 'AWS QA'
+            type: boolean
+            default: false
+        uat:
+            description: 'AWS UAT'
+            type: boolean
+            default: false
+        prod:
+            description: 'AWS PROD'
+            type: boolean
+            default: false
+
+permissions: # permissions required to connect to a service such as AWS or JFrog using OIDC.
+  id-token: write
+  contents: read
+
+env:
+  API_NAME: "maasriskscoreapi"
+
+jobs:
+
+  remove_custom_domain_dev:
+    name: DEV - Prep api-gateway upgrade v5
+    if: inputs.dev == true
+    runs-on: codebuild-github-dev-org-codebuild-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    environment: aws_development_datascience
+    steps:
+      # Step to configure AWS credentials using the provided role and region.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+        with:
+          role-to-assume: ${{ vars.ENV_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ENV_AWS_REGION }}
+
+      - name: Remove Custom EDGE Domain Names
+        id: validate
+        shell: bash
+        working-directory: '/'
+        run: |
+          domainnames=$(aws apigateway get-domain-names  --query "items[?contains(domainName, '${{ env.API_NAME }}') && endpointConfiguration.types[0]=='EDGE'].domainName" --output text)
+          echo "test"
+          echo $domainnames
+          echo $domainnames | xargs -n 1 aws apigateway get-domain-name --domain-name
+
+  # Deploy Terraform resources to AWS environments with manual approval
+  aws_development:
+    name: Deploy to DEV
+    if: inputs.dev == true
+    needs: [remove_custom_domain_dev]
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval.yml@main
+    with:
+      environment: "aws_development_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/infrastructure" # the working directory which contains the root Terraform module to deploy.
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=dev
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+
+  remove_custom_domain_testing:
+    name: QA - Prep api-gateway upgrade v5
+    if: inputs.qa == true
+    runs-on: codebuild-github-dev-org-codebuild-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    environment: aws_testing_datascience
+    steps:
+      # Step to configure AWS credentials using the provided role and region.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+        with:
+          role-to-assume: ${{ vars.ENV_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ENV_AWS_REGION }}
+
+      # Step to validate the Terraform configuration.
+      - name: Remove Custom EDGE Domain Names
+        id: validate
+        shell: bash
+        working-directory: '/'
+        run: |
+          domainnames=$(aws apigateway get-domain-names  --query "items[?contains(domainName, '${{ env.API_NAME }}') && endpointConfiguration.types[0]=='EDGE'].domainName" --output text)
+          echo "test"
+          echo $domainnames
+          echo $domainnames | xargs -n 1 aws apigateway get-domain-name --domain-name
+      
+  aws_testing:
+    name: Deploy to QA
+    if: inputs.qa == true
+    needs: [remove_custom_domain_testing] # used to order the sequence that the stages are in.
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval.yml@main
+    with:
+      environment: "aws_testing_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/infrastructure" # the working directory which contains the root Terraform module to deploy.
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=qa
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}
+
+  remove_custom_domain_prod:
+    name: PROD - Prep api-gateway upgrade v5
+    if: inputs.prod == true
+    runs-on: codebuild-github-dev-org-codebuild-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    environment: aws_production_datascience
+    steps:
+      # Step to configure AWS credentials using the provided role and region.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+        with:
+          role-to-assume: ${{ vars.ENV_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ENV_AWS_REGION }}
+
+      # Step to validate the Terraform configuration.
+      - name: Remove Custom EDGE Domain Names
+        id: validate
+        shell: bash
+        working-directory: '/'
+        run: |
+          domainnames=$(aws apigateway get-domain-names  --query "items[?contains(domainName, '${{ env.API_NAME }}') && endpointConfiguration.types[0]=='EDGE'].domainName" --output text)
+          echo "test"
+          echo $domainnames
+          echo $domainnames | xargs -n 1 aws apigateway get-domain-name --domain-name
+      
+  aws_production:
+    name: Deploy to PROD
+    if: inputs.prod == true
+    needs: [remove_custom_domain_prod] # used to order the sequence that the stages are in.
+    uses: Milliman-IntelliScript/reusable-workflows/.github/workflows/aws-terraform-manual-approval.yml@main
+    with:
+      environment: "aws_production_datascience" # the target environment associated with the AWS account to deploy to.
+      working-directory: "iac/terraform/infrastructure" # the working directory which contains the root Terraform module to deploy.
+    secrets:
+      dynamic-environment-variables: |
+        TF_VAR_ENVIRONMENT=prod
+        TF_VAR_DATADOG_API_KEY=${{ secrets.ORG_DD_API_KEY }}

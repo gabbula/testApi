@@ -1,0 +1,73 @@
+name: Deploy API Gateway
+inputs:
+    apigateway-name:
+      description: 'The name of the API Gateway'
+      required: true
+    aws-environment:
+      description: 'The AWS environment to deploy to'
+      required: true
+    aws-region:
+      description: 'The AWS region to deploy to'
+      required: true
+    aws-role-to-assume:
+      description: 'The AWS role to assume for deployment'
+      required: true
+    build-number:
+      description: 'The build number associated with the deployment'
+      required: true
+    
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Checkout the repository
+    # This step uses the `actions/checkout` action to clone the repository into the runner's workspace.
+    # It ensures that the source code is available for subsequent build and test steps.
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+      with:
+        role-to-assume: "${{ inputs.aws-role-to-assume }}"
+        aws-region: "${{ inputs.aws-region }}"
+
+    - name: Deploy API Gateway Staging Stage
+      id: stageDeploy
+      shell: bash
+      working-directory: '/'
+      run: |
+        gateway_id=$(aws apigateway get-rest-apis --query "items[?name=='${{ inputs.apigateway-name }}'].id | [0]" --output text)
+        echo "Found gateway with id: $gateway_id"
+        deployment_id=$(aws apigateway get-deployments --rest-api-id $gateway_id --query "items[?description=='${{ inputs.build-number }}'].id" --output text)
+        if [$deployment_id = ""]; then
+          deployment_id=$(aws apigateway create-deployment --rest-api-id $gateway_id --stage-name stage --description ${{ inputs.build-number }} --query id --output text)
+          echo "Created deployment for stage with id: $deployment_id"
+        else
+          echo "Found deployment with id: $deployment_id"              
+        fi
+        echo "Updating stage stage..."
+        aws apigateway update-stage --stage-name stage --rest-api-id $gateway_id --patch-operations op=replace,path=/deploymentId,value=$deployment_id
+
+    - name: Manual Approval
+      id: manual_approval
+      # Use a default Ubuntu runner for the manual approval step.
+      environment: ${{ inputs.aws-environment }}
+      # Only run this step if the previous job succeeded
+      if: success()
+      needs: terraform_plan
+      steps:
+        # Placeholder step for manual approval.
+        - run: echo "Waiting Approval."
+
+    - name: Deploy API Gateway Live Stage
+      id: liveDeploy
+      if: success() && (needs.manual_approval.result == 'Succeeded')
+      shell: bash
+      working-directory: '/'
+      run: |
+        gateway_id=$(aws apigateway get-rest-apis --query "items[?name=='${{ inputs.apigateway-name }}'].id | [0]" --output text)
+        echo "Found gateway with id: $gateway_id"
+        deployment_id=$(aws apigateway get-deployments --rest-api-id $gateway_id --query "items[?description=='${{ inputs.build-number }}'].id" --output text)
+        echo "Found deployment with id: $deployment_id"
+        echo "Updating live stage..."
+        aws apigateway update-stage --stage-name live --rest-api-id $gateway_id --patch-operations op=replace,path=/deploymentId,value=$deployment_id
