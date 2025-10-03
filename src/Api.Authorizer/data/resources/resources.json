@@ -1,0 +1,22 @@
+{
+  "AwsConfiguration" : {
+    "Resources": [
+      {
+        "resource": "arn:aws:execute-api:us-east-1:*:*/*/*/v1/model-executions",
+        "requireOneOfScopes": [ "model-execution" ]
+      },
+      {
+        "resource": "arn:aws:execute-api:us-east-1:*:*/*/GET/auth-health",
+        "requireOneOfScopes": [ "model-execution" ]
+      },
+      {
+        "resource": "arn:aws:execute-api:us-east-1:*:*/*/OPTIONS/auth-health",
+        "requireOneOfScopes": [ "model-execution" ]
+      },
+      {
+        "resource": "arn:aws:execute-api:us-east-1:*:*/*/*/v1/risk-score",
+        "requireOneOfScopes": [ "model-execution" ]
+      }
+    ]
+  }
+}

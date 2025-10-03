@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <AWSProjectType>Lambda</AWSProjectType>
+<!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+<!-- Generate ready to run images during publishing to improve cold start time. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+	  <AssemblyName>bootstrap</AssemblyName>
+    <RuntimeIdentifiers>linux-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.1" />
+	  <PackageReference Include="Amazon.Lambda.Core" Version="2.5.0" />
+	  <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.2" />
+	  <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
+	  <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.400.98" />
+	  <PackageReference Include="Microsoft.AspNetCore.HttpOverrides" Version="2.3.0" />
+	  <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.2" />
+	  <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.2" />
+	  <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
+	  <PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Function.Startup.cs">
+      <DependentUpon>Function.cs</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="data\resources\resources.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
