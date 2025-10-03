@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RiskScorePostRequest",
+  "type": "object",
+  "properties": {
+    "model_version": {
+      "type": "string"
+    },
+    "payload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "applicant": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "OrderApplicantID": { "type": "integer" },
+                  "Age": { "type": "integer" },
+                  "Gender": { "type": "string" },
+                  "InsertedOn": { "type": "string", "format": "date" },
+                  "ModelType": { "type": "string" },
+                  "GenerateRiskScoreSummary": { "type": "integer" },
+                  "GenerateRiskScoreTimeline": { "type": "integer" }
+                },
+                "required": [
+                  "OrderApplicantID",
+                  "Age",
+                  "Gender",
+                  "InsertedOn",
+                  "ModelType",
+                  "GenerateRiskScoreSummary",
+                  "GenerateRiskScoreTimeline"
+                ]
+              }
+            },
+            "dx": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "OrderApplicantID": { "type": "integer" },
+                  "ServiceDateFrom": { "type": "string", "format": "date" },
+                  "MedicalCode": { "type": "string" },
+                  "MedicalQualifierCodeTranslation": { "type": "string" },
+                  "RecordType": { "type": "string" },
+                  "DxClaimDetailID": { "type": "string" }
+                },
+                "required": [
+                  "OrderApplicantID",
+                  "ServiceDateFrom",
+                  "MedicalCode",
+                  "MedicalQualifierCodeTranslation",
+                  "RecordType",
+                  "DxClaimDetailID"
+                ]
+              }
+            },
+            "rx": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "OrderApplicantID": { "type": "integer" },
+                  "GPI": { "type": "string" },
+                  "PrescriptionStartDate": { "type": "string", "format": "date" },
+                  "DrugPriority": { "type": "string" },
+                  "OrderApplicantGPIID": { "type": "string" }
+                },
+                "required": [
+                  "OrderApplicantID",
+                  "GPI",
+                  "PrescriptionStartDate",
+                  "DrugPriority",
+                  "OrderApplicantGPIID"
+                ]
+              }
+            }
+          },
+          "required": ["applicant", "dx", "rx"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "applicant": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "OrderApplicantID": { "type": "integer" },
+                  "Age": { "type": "integer" },
+                  "Gender": { "type": "string" },
+                  "InsertedOn": { "type": "string", "format": "date" },
+                  "GenerateRiskScoreSummary": { "type": "integer" },
+                  "GenerateRiskScoreTimeline": { "type": "integer" }
+                },
+                "required": [
+                  "OrderApplicantID",
+                  "Age",
+                  "Gender",
+                  "InsertedOn",
+                  "GenerateRiskScoreSummary",
+                  "GenerateRiskScoreTimeline"
+                ]
+              }
+            },
+            "dx": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "OrderApplicantID": { "type": "integer" },
+                  "ServiceDateFrom": { "type": "string", "format": "date" },
+                  "MedicalCode": { "type": "integer" },
+                  "MedicalQualifierCodeTranslation": { "type": "string" },
+                  "RecordType": { "type": "string" },
+                  "N_Specialty": { "type": "string" },
+                  "MDSpecialty": { "type": ["string", "null"] },
+                  "PlaceOfServiceCode": { "type": "integer" }
+                },
+                "required": [
+                  "OrderApplicantID",
+                  "ServiceDateFrom",
+                  "MedicalCode",
+                  "MedicalQualifierCodeTranslation",
+                  "RecordType"
+                ]
+              }
+            },
+            "rx": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "OrderApplicantID": { "type": "integer" },
+                  "GPI": { "type": "integer" },
+                  "PrescriptionStartDate": { "type": "string", "format": "date" },
+                  "DrugPriority": { "type": "string" },
+                  "N_Specialty": { "type": "string" },
+                  "MDSpecialty": { "type": ["string", "null"] }
+                },
+                "required": [
+                  "OrderApplicantID",
+                  "GPI",
+                  "PrescriptionStartDate",
+                  "DrugPriority"
+                ]
+              }
+            }
+          },
+          "required": ["applicant", "dx", "rx"]
+        },
+        {
+          "type": "string",
+          "description": "Base64-encoded gzipped JSON of the payload object"
+        }
+      ]
+    }
+  },
+  "required": ["model_version", "payload"]
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "ModelExecutionsResponse",
+  "type": "object",
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "A unique identifier for the request."
+    },
+    "model": {
+      "type": "string",
+      "description": "The name of the model."
+    },
+    "modelVersion": {
+      "type": "string",
+      "description": "The version of the model."
+    },
+    "callbackUrl": {
+      "type": "string",
+      "description": "An optional webhook URL to call upon completion or failure."
+    },
+    "requestStatus": {
+      "type": "string",
+      "description": "The current status of the request.",
+      "enum": [
+        "pending-inputs",
+        "executing",
+        "completed",
+        "failed"
+      ]
+    },
+    "uploadTimeout": {
+      "type": "string",
+      "description": "A timestamp indicating when the input uploads will timeout."
+    },
+    "inputProtocol": {
+      "type": "string",
+      "description": "Protocol to use for uploading inputs.",
+      "enum": [
+        "PUT",
+        "POST"
+      ]
+    },
+    "inputLocations": {
+      "type": "object",
+      "description": "A mapping of input file names to their corresponding upload details.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "A URL for uploading the input file.",
+            "format": "uri"
+          },
+          "status": {
+            "type": "string",
+            "description": "The upload status of the specific input file.",
+            "enum": [
+              "pending",
+              "uploaded"
+            ]
+          },
+          "headers": {
+            "type": "object",
+            "description": "A mapping headers that must be sent while uploading the input file.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "url",
+          "uploadStatus"
+        ]
+      }
+    }
+  },
+  "required": [
+    "requestId",
+    "model",
+    "modelVersion",
+    "requestStatus",
+    "uploadTimeout",
+    "inputProtocol"
+  ]
+}
